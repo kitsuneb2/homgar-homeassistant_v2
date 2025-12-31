@@ -46,6 +46,7 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API endpoint."""
         try:
+            _LOGGER.debug("Homgar refresh cycle START")
             # Ensure we're logged in
             await self.hass.async_add_executor_job(
                 self.api.ensure_logged_in, self.email, self.password, self.area_code
@@ -76,11 +77,22 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         devices[f"device_{subdevice.mid}_{subdevice.address}"] = subdevice
 
             self.devices = devices
+            for dev_id, dev in self.devices.items():
+                if hasattr(dev, "temp_mk_current"):
+                    _LOGGER.debug(
+                       "Device %s temp_mk_current=%s",
+                        dev_id,
+                        dev.temp_mk_current,
+                    )
+
             
             # Set up MQTT subscription for real-time updates
             if not self.mqtt_subscribed:
                 await self._setup_mqtt_subscription()
             
+            self.async_set_updated_data(dict(self.devices))
+            _LOGGER.debug("Homgar refresh cycle END")
+
             return devices
 
         except HomgarApiException as err:
@@ -203,7 +215,7 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Extracted device ID: %s", device_id)
             
             if not device_id:
-                _LOGGER.warning("No device ID found in MQTT data - cannot process update")
+                _LOGGER.debug("No device ID found in MQTT data - cannot process update")
                 _LOGGER.info("Available keys in data: %s", list(data.keys()) if isinstance(data, dict) else "Not a dict")
                 return
                 
@@ -237,7 +249,7 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     
                     # Trigger coordinator update to notify entities
                     _LOGGER.info("Triggering coordinator update to notify entities")
-                    self.async_set_updated_data(self.devices)
+                    self.async_set_updated_data(dict(self.devices))
                     _LOGGER.info("Coordinator update triggered")
                 else:
                     _LOGGER.warning("Device does not have set_device_status method")
