@@ -125,6 +125,10 @@ class HomgarApi:
         data = self._get_json("/app/device/getDeviceByHid", params={"hid": str(hid)})
         hubs = []
 
+        logger.debug("=== RAW DEVICE TREE FOR HID %s ===", hid)
+        logger.debug(json.dumps(data, indent=2))
+
+
         def device_base_props(dev_data):
             return dict(
                 model=dev_data.get('model'),
@@ -145,21 +149,51 @@ class HomgarApi:
             return MODEL_CODE_MAPPING[model_code]
 
         for hub_data in data:
+            logger.debug(
+                "HUB FOUND: name=%s model=%s modelCode=%s did=%s",
+                hub_data.get("deviceName"),
+                hub_data.get("model"),
+                hub_data.get("modelCode"),
+                hub_data.get("did")
+            )
+
+            hub_did = hub_data.get("did")  # 🔑 DID réel du hub
+
             subdevices = []
             for subdevice_data in hub_data.get('subDevices', []):
+                logger.debug(
+                    "  SUBDEVICE FOUND: name=%s model=%s modelCode=%s did=%s",
+                    subdevice_data.get("name"),
+                    subdevice_data.get("model"),
+                    subdevice_data.get("modelCode"),
+                    subdevice_data.get("did")
+                )
+
                 did = subdevice_data.get('did')
+
+                # ⚠️ Correction HomGar : le subdevice météo a did = "0"
+                if str(did) == "0":
+                    logger.debug(
+                        "  SUBDEVICE '%s' has did=0 → binding to hub did=%s",
+                        subdevice_data.get("name"),
+                        hub_did
+                    )
+                    subdevice_data = dict(subdevice_data)  # copie pour ne pas polluer l'original
+                    subdevice_data["did"] = hub_did
+
+                # Ancien cas spécial (hub display), on ne change pas
                 if did == 1:
-                    # Display hub
                     continue
+
                 subdevice_class = get_device_class(subdevice_data)
                 if subdevice_class is None:
                     continue
-                
+
                 # Create subdevice with additional hub information for control
                 subdevice_props = device_base_props(subdevice_data)
                 subdevice_props['hub_device_name'] = hub_data.get('deviceName')
                 subdevice_props['hub_product_key'] = hub_data.get('productKey')
-                
+
                 subdevices.append(subdevice_class(**subdevice_props))
 
             hub_class = get_device_class(hub_data)
@@ -170,11 +204,13 @@ class HomgarApi:
             hub_props = device_base_props(hub_data)
             hub_props['hub_device_name'] = hub_data.get('deviceName')
             hub_props['hub_product_key'] = hub_data.get('productKey')
-            
-            hubs.append(hub_class(
-                **hub_props,
-                subdevices=subdevices
-            ))
+
+            hubs.append(
+                hub_class(
+                    **hub_props,
+                    subdevices=subdevices
+                )
+            )
 
         return hubs
 
@@ -572,7 +608,7 @@ class HomgarApi:
         if rc == 0:
             logger.info("MQTT disconnected cleanly (code %s)", rc)
         else:
-            logger.warning("MQTT disconnected unexpectedly with code %s", rc)
+            logger.debug("MQTT disconnected unexpectedly with code %s", rc)
         self.mqtt_connected = False
 
     def disconnect_mqtt(self):
