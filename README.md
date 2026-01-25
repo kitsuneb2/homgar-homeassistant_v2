@@ -2,17 +2,17 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-Home Assistant integration for HomGar / RainPoint 
+Home Assistant integration for Homgar / RainPoint 
 
 This project is forked from Remboooo/homgarapi and adapted for Home Assistant usage.
 
 ## ✨ What’s New in This Fork
 
-### ✅ Fixed MQTT connection
+### ✅ Fixed MQTT connection (reliable, auto refresh, but despite subscription to many things only SET commands are being received)
 ### ✅ Support for a new hub HWG023WBRF-V2
 ### ✅ Support for Soil Sensors: HCS026FRF
-### ✅ Support for Air Sensors: HCS014ARF
-### ✅ Support for Rain Sensors: HCS012ARF
+### ✅ Support for Air Sensors: HCS014ARF (includes MAX, MIN and Current values for Temp and Humidity)
+### ✅ Support for Rain Sensors: HCS012ARF (includes Current, 24h, 7h and TOTAL in mm)
 ### ✅ Support for 4 Zone valve timer: HTV405FRF
 ### ✅ Added a debug logs including when a new device or not recognised device is detected
 
