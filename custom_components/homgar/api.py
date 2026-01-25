@@ -54,10 +54,26 @@ class HomgarApi:
         self._mqtt_msg_counter = 0
 
     def _request(self, method, url, with_auth=True, headers=None, **kwargs):
+        # --- ORIGINAL LOGIC UNCHANGED ---
         headers = {"lang": "en", "appCode": "1", **(headers or {})}
         if with_auth:
             headers["auth"] = self.cache.get("token")
         response = self.session.request(method, url, headers=headers, **kwargs)
+        # --------------------------------
+
+        # --- ONLY ADDITION: HEX LOGGING (DISABLED) ---
+        # if "/app/device/getDeviceStatus" in url:
+        #     try:
+        #         # Convert raw bytes to hex string
+        #         hex_data = ' '.join(f"{b:02X}" for b in response.content)
+        #         logger.info("[HTTP-POLL-HEX] Raw HEX: %s", hex_data)
+        #         # Show raw string text
+        #         logger.info("[HTTP-POLL-HEX] Raw Text: %s", response.text)
+        #     except Exception as e:
+        #         logger.error("Hex logging failed: %s", e)
+        # ---------------------------------
+
+        # --- ORIGINAL LOGIC UNCHANGED ---
         logger.debug("[API HTTP RECV] Status: %d | URL: %s", response.status_code, url)
         return response
 
@@ -162,6 +178,9 @@ class HomgarApi:
         try:
             logger.info("Requesting MQTT credentials for HID: %s", hid)
             self.subscription_data = self._post_json("/app/device/subscribeStatus", sub_body)
+            #CONFIRM THE EXPIRATION TIME
+            logger.info("[DIAG] [MQTT-EXPIRE] Raw Expire: %s", self.subscription_data.get('expire'))
+            #
             self._subscription_devices, self._subscription_hids = devices, hid_list
             logger.info("[DEBUG] [API HTTP RECV] Status: 200 | URL: %s/app/device/subscribeStatus", self.base)
             return self.subscription_data
@@ -171,7 +190,15 @@ class HomgarApi:
 
     def connect_mqtt(self, callback: Optional[Callable] = None) -> bool:
         if not self.subscription_data or mqtt is None: return False
-        if callback: self.status_callbacks.append(callback)
+
+        # --- FIX 1: Add Gatekeeper to prevent double connections ---
+        if self.mqtt_connected and self.mqtt_client and self.mqtt_client.is_connected():
+            return True
+
+        # --- FIX 2: Prevent duplicate callbacks (stops 18x log lines) ---
+        if callback and callback not in self.status_callbacks:
+            self.status_callbacks.append(callback)
+
         with self._mqtt_lock:
             if self.mqtt_client and self.mqtt_connected: return True
             try:
@@ -184,21 +211,26 @@ class HomgarApi:
 
                 self.mqtt_client = mqtt.Client(client_id=client_id, clean_session=True, protocol=mqtt.MQTTv311)
                 self.mqtt_client.on_connect, self.mqtt_client.on_message = self._on_mqtt_connect, self._on_mqtt_message
-                self.mqtt_client.on_disconnect, self.mqtt_client.on_log = self._on_mqtt_disconnect, self._on_mqtt_log
+
+
+                # --- FIX 3: REMOVED self.mqtt_client.on_log to stop duplicate logs ---
+                self.mqtt_client.on_disconnect = self._on_mqtt_disconnect
+                # self.mqtt_client.on_log = self._on_mqtt_log  <-- COMMENT THIS OUT
+
                 self.mqtt_client.on_subscribe = self._on_mqtt_subscribe
                 
                 self.mqtt_client.username_pw_set(username, password)
                 self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=60)
-                self.mqtt_client.loop_start()
+                
                 
                 h, p = c.get('mqttHostUrl').split(':') if ':' in c.get('mqttHostUrl') else (c.get('mqttHostUrl'), 1883)
                 logger.info("[DIAG] [MQTT-SIGN] Sending Signed Connect to %s", h)
-                self.mqtt_client.connect(h, int(p), keepalive=60)
+                self.mqtt_client.connect(h, int(p), keepalive=120)
+                self.mqtt_client.loop_start()
                 return True
             except Exception as e:
                 logger.error("MQTT Connection Exception: %s", e)
                 return False
-
     def _on_mqtt_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.mqtt_connected = True
@@ -223,14 +255,15 @@ class HomgarApi:
             logger.info("MQTT: SUCCESS - Connected. Listening for Hub/Sub-device commands and telemetry.")
         else:
             self.mqtt_connected = False
-            logger.error("MQTT: Connection refused code %d", rc)
+            logger.error("MQTT: Connection refused code %d", rc)    
+
 
     def _on_mqtt_subscribe(self, client, userdata, mid, granted_qos):
         logger.info("[DIAG] [MQTT-SUBACK] MessageID=%d | GrantedQoS=%s", mid, granted_qos)
-
+    
     def _on_mqtt_log(self, client, userdata, level, buf):
         logger.info("[DIAG] [MQTT-INTERNAL] %s", buf)
-
+    
     def _on_mqtt_message(self, client, userdata, msg):
         self._mqtt_msg_counter += 1
         seq = self._mqtt_msg_counter
@@ -240,6 +273,7 @@ class HomgarApi:
             logger.info("MQTT: Real-time update #%d received on topic: %s", seq, msg.topic)
             data = json.loads(payload)
             data['_seq'] = seq
+            if 'params' in data: data.setdefault('data', data['params'])
             for cb in self.status_callbacks:
                 try: cb(data)
                 except Exception as e: logger.error("Callback Error: %s", e)
@@ -263,9 +297,14 @@ class HomgarApi:
     def is_subscription_expired(self) -> bool:
         if not self.subscription_data: return True
         exp = self.subscription_data.get('expire', 0)
-        return (exp - int(time.time() * 1000)) <= 300000
+        return (exp - int(time.time() * 1000)) <= 60000
+
+    #def renew_subscription(self) -> bool:
+    #    if not self.is_subscription_expired(): return True
+    #    self.disconnect_mqtt()
+    #    return bool(self.subscribe_to_device_status(self._subscription_hids[0], self._subscription_hids, self._subscription_devices))
 
     def renew_subscription(self) -> bool:
         if not self.is_subscription_expired(): return True
-        self.disconnect_mqtt()
+        # REMOVED: self.disconnect_mqtt() 
         return bool(self.subscribe_to_device_status(self._subscription_hids[0], self._subscription_hids, self._subscription_devices))
