@@ -53,9 +53,43 @@ SENSOR_DESCRIPTIONS = {
         state_class=SensorStateClass.MEASUREMENT,
         icon=ICON_TEMPERATURE,
     ),
+    # New Min/Max Temperature Descriptions
+    "temp_min": SensorEntityDescription(
+        key="temp_min",
+        name="Temperature Min",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon=ICON_TEMPERATURE,
+    ),
+    "temp_max": SensorEntityDescription(
+        key="temp_max",
+        name="Temperature Max",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon=ICON_TEMPERATURE,
+    ),
     "humidity": SensorEntityDescription(
         key="humidity",
         name="Humidity",
+        device_class=SensorDeviceClass.HUMIDITY,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon=ICON_HUMIDITY,
+    ),
+    # New Min/Max Humidity Descriptions
+    "hum_min": SensorEntityDescription(
+        key="hum_min",
+        name="Humidity Min",
+        device_class=SensorDeviceClass.HUMIDITY,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon=ICON_HUMIDITY,
+    ),
+    "hum_max": SensorEntityDescription(
+        key="hum_max",
+        name="Humidity Max",
         device_class=SensorDeviceClass.HUMIDITY,
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -77,9 +111,33 @@ SENSOR_DESCRIPTIONS = {
         state_class=SensorStateClass.MEASUREMENT,
         icon=ICON_SOIL_MOISTURE,
     ),
-    "rainfall": SensorEntityDescription(
-        key="rainfall",
-        name="Rainfall",
+    "rainfall_current": SensorEntityDescription(
+        key="rainfall_current",
+        name="Rainfall Current",
+        device_class=SensorDeviceClass.PRECIPITATION,
+        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon=ICON_RAINFALL,
+    ),
+    "rainfall_24h": SensorEntityDescription(
+        key="rainfall_24h",
+        name="Rainfall (24h)",
+        device_class=SensorDeviceClass.PRECIPITATION,
+        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon=ICON_RAINFALL,
+    ),
+    "rainfall_7d": SensorEntityDescription(
+        key="rainfall_7d",
+        name="Rainfall (7d)",
+        device_class=SensorDeviceClass.PRECIPITATION,
+        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon=ICON_RAINFALL,
+    ),
+    "rainfall_total": SensorEntityDescription(
+        key="rainfall_total",
+        name="Rainfall (Total)",
         device_class=SensorDeviceClass.PRECIPITATION,
         native_unit_of_measurement=UnitOfLength.MILLIMETERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -112,17 +170,28 @@ async def async_setup_entry(
                 HomgarPressureSensor(coordinator, device_id, device),
             ])
         elif isinstance(device, RainPointSoilMoistureSensor):
-            entities.extend([
-                HomgarSoilMoistureSensor(coordinator, device_id, device),
-                HomgarSoilTemperatureSensor(coordinator, device_id, device),
-            ])
+            entities.append(
+                HomgarSoilMoistureSensor(coordinator, device_id, device)
+            )
         elif isinstance(device, RainPointAirSensor):
             entities.extend([
+                # Temperature Entities (Current, Min, Max)
                 HomgarAirTemperatureSensor(coordinator, device_id, device),
+                HomgarAirTemperatureSensor(coordinator, device_id, device, "temp_min"),
+                HomgarAirTemperatureSensor(coordinator, device_id, device, "temp_max"),
+                
+                # Humidity Entities (Current, Min, Max)
                 HomgarAirHumiditySensor(coordinator, device_id, device),
+                HomgarAirHumiditySensor(coordinator, device_id, device, "hum_min"),
+                HomgarAirHumiditySensor(coordinator, device_id, device, "hum_max"),
             ])
         elif isinstance(device, RainPointRainSensor):
-            entities.append(HomgarRainfallSensor(coordinator, device_id, device))
+            entities.extend([
+                HomgarRainfallSensor(coordinator, device_id, device, "rainfall_current"),
+                HomgarRainfallSensor(coordinator, device_id, device, "rainfall_24h"),
+                HomgarRainfallSensor(coordinator, device_id, device, "rainfall_7d"),
+                HomgarRainfallSensor(coordinator, device_id, device, "rainfall_total"),
+            ])
         elif isinstance(device, HTV405FRF):
             for zone in [1, 2, 3, 4]:
                 entities.append(
@@ -199,52 +268,74 @@ class HomgarSoilMoistureSensor(HomgarSensor):
         return getattr(self.device, 'moist_percent_current', None)
 
 
-class HomgarSoilTemperatureSensor(HomgarSensor):
-    """Soil temperature sensor."""
-    def __init__(self, coordinator, device_id, device):
-        super().__init__(coordinator, device_id, device, SENSOR_DESCRIPTIONS["temperature"])
-
-    @property
-    def native_value(self) -> float | None:
-        if self.device and hasattr(self.device, 'temp_mk_current') and self.device.temp_mk_current:
-            return round(self.device.temp_mk_current * 1e-3 - 273.15, 1)
-        return None
-
-
 class HomgarAirTemperatureSensor(HomgarSensor):
-    """Air temperature sensor with weather icon fix."""
-    def __init__(self, coordinator, device_id, device):
-        # FIX: Use replace() for frozen dataclass
-        new_desc = replace(SENSOR_DESCRIPTIONS["temperature"], icon=ICON_AIR_SENSOR)
+    """Air temperature sensor supporting Current, Min, and Max."""
+    def __init__(self, coordinator, device_id, device, description_key="temperature"):
+        # Use the specific description for Min/Max or default to current
+        desc = SENSOR_DESCRIPTIONS.get(description_key, SENSOR_DESCRIPTIONS["temperature"])
+        # Apply the Air Sensor icon fix
+        new_desc = replace(desc, icon=ICON_AIR_SENSOR)
         super().__init__(coordinator, device_id, device, new_desc)
+        self._desc_key = description_key
 
     @property
     def native_value(self) -> float | None:
-        if self.device and hasattr(self.device, 'temp_mk_current') and self.device.temp_mk_current:
-            return round(self.device.temp_mk_current * 1e-3 - 273.15, 1)
+        if not self.device:
+            return None
+            
+        # Map the description key to the correct internal variable
+        attr = 'temp_mk_current'
+        if self._desc_key == "temp_min":
+            attr = 'temp_mk_min'
+        elif self._desc_key == "temp_max":
+            attr = 'temp_mk_max'
+        
+        val = getattr(self.device, attr, None)
+        if val is not None:
+            # Convert milli-Kelvin to Celsius rounded to 1 decimal
+            return round(val * 1e-3 - 273.15, 1)
         return None
 
 
 class HomgarAirHumiditySensor(HomgarSensor):
-    """Air humidity sensor with weather icon fix."""
-    def __init__(self, coordinator, device_id, device):
-        # FIX: Use replace() for frozen dataclass
-        new_desc = replace(SENSOR_DESCRIPTIONS["humidity"], icon=ICON_AIR_SENSOR)
+    """Air humidity sensor supporting Current, Min, and Max."""
+    def __init__(self, coordinator, device_id, device, description_key="humidity"):
+        desc = SENSOR_DESCRIPTIONS.get(description_key, SENSOR_DESCRIPTIONS["humidity"])
+        new_desc = replace(desc, icon=ICON_AIR_SENSOR)
         super().__init__(coordinator, device_id, device, new_desc)
+        self._desc_key = description_key
 
     @property
     def native_value(self) -> int | None:
-        return getattr(self.device, 'hum_current', None)
+        if not self.device:
+            return None
+            
+        attr = 'hum_current'
+        if self._desc_key == "hum_min":
+            attr = 'hum_min'
+        elif self._desc_key == "hum_max":
+            attr = 'hum_max'
+            
+        return getattr(self.device, attr, None)
 
 
 class HomgarRainfallSensor(HomgarSensor):
-    """Rainfall sensor."""
-    def __init__(self, coordinator, device_id, device):
-        super().__init__(coordinator, device_id, device, SENSOR_DESCRIPTIONS["rainfall"])
+    """Rainfall sensor supporting Current, 24h, 7d, and Total."""
+    def __init__(self, coordinator, device_id, device, description_key):
+        super().__init__(coordinator, device_id, device, SENSOR_DESCRIPTIONS[description_key])
+        self._desc_key = description_key
 
     @property
     def native_value(self) -> float | None:
-        return getattr(self.device, 'rainfall_current', None)
+        if self._desc_key == "rainfall_current":
+            return getattr(self.device, 'rain_current', 0.0) # Mapping internal 1h to 'Current'
+        if self._desc_key == "rainfall_24h":
+            return getattr(self.device, 'rain_24h', 0.0)
+        if self._desc_key == "rainfall_7d":
+            return getattr(self.device, 'rain_7d', 0.0)
+        if self._desc_key == "rainfall_total":
+            return getattr(self.device, 'rain_total', 0.0)
+        return None
 
 
 class HomgarZoneStatusSensor(HomgarSensor):
