@@ -18,6 +18,7 @@ This project is forked from Remboooo/homgarapi and adapted for Home Assistant us
     (includes Current, 24h, 7h and TOTAL in mm)
 ### ✅ Support for 4 Zone valve timer: HTV405FRF
 ### ✅ Added a debug logs including when a new device or not recognised device is detected
+    90% of the HEX received from HTTP Poll is decoded
 
 TODO:
 
