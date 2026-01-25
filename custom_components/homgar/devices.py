@@ -115,46 +115,80 @@ class HomgarSubDevice(HomgarDevice):
         return [f"D{self.address:02d}", "connected"]
 
 class RainPointAirSensor(HomgarSubDevice):
-    """Outdoor Air Temperature and Humidity Sensor (HCS014ARF)."""
+    """Outdoor/Indoor Air Sensor (HCS014ARF) with Min/Max/Current decoding."""
     MODEL_CODES = [262]
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.temp_mk_current = None
+        self.temp_mk_min = None
+        self.temp_mk_max = None
         self.hum_current = None
+        self.hum_min = None
+        self.hum_max = None
 
     def _parse_device_specific_status_d_value(self, s):
         if "10#" in s:
             hex_part = s.split('#')[1]
             try:
-                # Standard HomGar hex offsets for temperature
-                self.temp_mk_current = _temp_to_mk(int(hex_part[4:8], 16))
+                # Little Endian Helper for Temperature
+                def parse_t(start):
+                    # Swaps bytes (e.g., '5802' -> '0258')
+                    flipped = hex_part[start+2:start+4] + hex_part[start:start+2]
+                    return _temp_to_mk(int(flipped, 16))
+
+                # TEMPERATURE MAPPING (Offsets 2, 6, 20)
+                self.temp_mk_min     = parse_t(2)  # Index 2-5: '5802' -> 15.6C
+                self.temp_mk_max     = parse_t(6)  # Index 6-9: '7502' -> 17.2C
+                self.temp_mk_current = parse_t(20) # Index 20-23: '6102' -> 16.1C
+
+                # HUMIDITY MAPPING (Offsets 26, 30, 32 based on marker 88)
+                pos_88 = hex_part.find('88')
+                if pos_88 >= 0:
+                    self.hum_current = int(hex_part[pos_88+2:pos_88+4], 16) # '33' -> 51%
+                    self.hum_min     = int(hex_part[pos_88+6:pos_88+8], 16) # '31' -> 49%
+                    self.hum_max     = int(hex_part[pos_88+8:pos_88+10], 16) # '38' -> 56%
                 
-                # FIXED HUMIDITY LOGIC: Search for markers 87 or 88
-                for marker in ['87', '88']:
-                    pos = hex_part.find(marker)
-                    if pos >= 0 and pos + 4 <= len(hex_part):
-                        self.hum_current = int(hex_part[pos+2:pos+4], 16)
-                        break
-                
-                logger.info("[DEBUG] [AIR UPDATE] %s: Temp %s, Hum %d%%", self.name, self.temp_mk_current, self.hum_current)
-            except:
-                pass
+                logger.info("[DEBUG] [AIR] %s: T(C:%s Min:%s Max:%s) H(C:%s Min:%s Max:%s)", 
+                            self.name, self.temp_mk_current, self.temp_mk_min, 
+                            self.temp_mk_max, self.hum_current, self.hum_min, self.hum_max)
+            except Exception as e:
+                logger.error("Air Sensor parse error: %s", e)
 
 class RainPointRainSensor(HomgarSubDevice):
-    """Outdoor Rain Sensor (HCS012ARF)."""
+    """Outdoor Rain Sensor (HCS012ARF) with corrected offsets."""
     MODEL_CODES = [87]
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.rainfall_current = None
+        self.rain_hour = 0.0
+        self.rain_24h = 0.0
+        self.rain_7d = 0.0
+        self.rain_total = 0.0
 
     def _parse_device_specific_status_d_value(self, s):
         if "10#" in s:
             hex_part = s.split('#')[1]
             try:
-                self.rainfall_current = int(hex_part[4:8], 16) * 0.1
-                logger.info("[DEBUG] [RAIN UPDATE] %s: Value %f", self.name, self.rainfall_current)
-            except:
-                pass
+                # Little Endian Helper: Swaps bytes and divides by 10
+                def get_le_val(start):
+                    # We need 4 characters (2 bytes)
+                    flipped = hex_part[start+2:start+4] + hex_part[start:start+2]
+                    return int(flipped, 16) * 0.1
+
+                # Corrected Offsets based on your specific HEX:
+                # Index 2: 0000 (Hour) -> 0.0
+                # Index 10: 0000 (24h) -> 0.0
+                # Index 26: 1202 (7d/Total) -> 53.0
+                # Index 36: 1202 (Total/7d) -> 53.0
+                
+                self.rain_hour  = get_le_val(2)   # Right after E1
+                self.rain_24h   = get_le_val(10)  # Skips FD04 marker
+                self.rain_7d    = get_le_val(26)  # Skips FD06 marker
+                self.rain_total = get_le_val(36)  # Reads the second 1202 block
+
+                logger.info("[DEBUG] [RAIN] 1h:%.1f, 24h:%.1f, 7d:%.1f, Tot:%.1f", 
+                            self.rain_hour, self.rain_24h, self.rain_7d, self.rain_total)
+            except Exception as e:
+                logger.error("Rain Sensor parse error: %s", e)
 
 class RainPointSoilMoistureSensor(HomgarSubDevice):
     """Soil moisture and temperature sensor (HCS026FRF)."""
