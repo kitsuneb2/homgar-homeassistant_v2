@@ -31,7 +31,7 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass,
             _LOGGER,
             name=DOMAIN,
-            #update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
+            # update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
             update_interval=SCAN_INTERVAL,
         )
         self.api = api
@@ -70,7 +70,9 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         devices[f"device_{subdevice.mid}_{subdevice.address}"] = subdevice
 
             self.devices = devices
-            if not self.mqtt_subscribed:
+
+            # LINE 66: This ensures your 30s poll doesn't restart MQTT if it's already alive.
+            if not self.api.mqtt_connected:
                 await self._setup_mqtt_subscription()
             
             return devices
@@ -120,8 +122,7 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         seq = data.get('_seq', 'N/A')
         
         # DEBUG: Match this log to the [MQTT-IN #X] log in api.py
-        _LOGGER.info("[DEBUG] [COORDINATOR RECV #%d] Trace-Seq: %s | Data: %s", 
-                     self._processed_update_count, seq, data)
+        _LOGGER.info("[DEBUG] [COORDINATOR RECV #%d] Trace-Seq: %s | Data: %s", self._processed_update_count, seq, data)
         
         self.hass.add_job(self._process_mqtt_update(data))
 
@@ -145,7 +146,6 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 
                 if isinstance(status_payload, dict):
                     # DEBUG: STATE TRACE - BEFORE DATA INJECTION
-                    # Captures the zone dictionary before the new payload is applied.
                     if hasattr(device, 'zones'):
                         _LOGGER.info("[DEBUG] [Proc-Trace #%s] PRE-UPDATE ZONES: %s", seq, device.zones)
                     
@@ -153,7 +153,6 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         device.set_device_status({"id": s_id, "value": str(s_val)})
 
                     # DEBUG: STATE TRACE - AFTER DATA INJECTION
-                    # Verify if the internal device object successfully parsed the new status.
                     if hasattr(device, 'zones'):
                         _LOGGER.info("[DEBUG] [Proc-Trace #%s] POST-UPDATE ZONES: %s", seq, device.zones)
                     
@@ -162,10 +161,19 @@ class HomgarDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.error("Error processing MQTT update: %s", err)
 
+    #def _start_subscription_renewal_task(self):
+    #    """Starts the background task to check for token expiration."""
+    #    if self._subscription_check_task:
+    #        self._subscription_check_task.cancel()
+    #    self._subscription_check_task = asyncio.create_task(self._subscription_renewal_loop())
+
     def _start_subscription_renewal_task(self):
         """Starts the background task to check for token expiration."""
-        if self._subscription_check_task:
-            self._subscription_check_task.cancel()
+        # Check if a task exists and if it is still running
+        if self._subscription_check_task and not self._subscription_check_task.done():
+            return
+
+        # Only create a new task if the old one finished or doesn't exist
         self._subscription_check_task = asyncio.create_task(self._subscription_renewal_loop())
 
     async def _subscription_renewal_loop(self):
