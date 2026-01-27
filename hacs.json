@@ -1,9 +1,9 @@
 {
   "name": "Homgar v2",
   "content_in_root": false,
-  "filename": "homgar",
+  "filename": "homgarv2",
   "country": ["NL", "PL", "DE", "US"],
-  "domains": ["homgar"],
+  "domains": ["homgarv2"],
   "homeassistant": "2026.1.0",
   "render_readme": true,
   "zip_release": false
