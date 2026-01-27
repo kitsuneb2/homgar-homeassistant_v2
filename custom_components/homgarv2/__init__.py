@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from typing import TypeAlias # Added for stable type aliasing
+
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
@@ -28,7 +30,8 @@ from .coordinator import HomgarDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-#type HomgarConfigEntry = ConfigEntry[HomgarDataUpdateCoordinator]
+# Re-defined using TypeAlias for compatibility and to satisfy sensor/switch imports
+HomgarConfigEntry: TypeAlias = ConfigEntry[HomgarDataUpdateCoordinator]
 
 # Service schemas
 SERVICE_START_IRRIGATION_SCHEMA = vol.Schema({
