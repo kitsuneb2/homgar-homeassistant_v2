@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Final
 
-DOMAIN: Final = "homgar"
+DOMAIN: Final = "homgarv2"
 
 # Configuration
 CONF_EMAIL: Final = "email"
