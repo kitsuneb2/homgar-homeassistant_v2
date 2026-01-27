@@ -18,9 +18,16 @@ This project is forked from Remboooo/homgarapi and adapted for Home Assistant us
 ### ✅ 90% of the HEX received from the API is decoded
     The remaing 10% not very important like battery status, RSSI etc. to be decoded
 ### ✅ Fixed MQTT connection 
-    
 
-TODO:
+### Instalation:
+
+HACS (Recommended)
+Make sure HACS is installed and working.
+Add this repository (Type: Integration)
+Search for Homgar v2
+Download and install using HACS.    
+
+Still TODO:
 
 Confirm that the MQTT is only for configuration changes.
 I could not obtain a version to be able to receive the device / sensor update status from MQTT. This is done via 30 seconds HTTP POLL, but at least MQTT is stable.
