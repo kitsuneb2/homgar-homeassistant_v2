@@ -180,10 +180,10 @@ class RainPointRainSensor(HomgarSubDevice):
                 # Index 26: 1202 (7d/Total) -> 53.0
                 # Index 36: 1202 (Total/7d) -> 53.0
                 
-                self.rain_hour  = get_le_val(2)   # Right after E1
-                self.rain_24h   = get_le_val(10)  # Skips FD04 marker
-                self.rain_7d    = get_le_val(26)  # Skips FD06 marker
-                self.rain_total = get_le_val(36)  # Reads the second 1202 block
+                self.rain_hour   = get_le_val(2)   # Hourly
+                self.rain_24h    = get_le_val(14)  # MOVED from 10 to 14
+                self.rain_7d     = get_le_val(26)  # 7-Day
+                self.rain_total  = get_le_val(38)  # MOVED from 36 to 38 for alignment
 
                 logger.info("[DEBUG] [RAIN] 1h:%.1f, 24h:%.1f, 7d:%.1f, Tot:%.1f", 
                             self.rain_hour, self.rain_24h, self.rain_7d, self.rain_total)
